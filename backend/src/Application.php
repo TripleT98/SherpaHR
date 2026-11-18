@@ -58,10 +58,14 @@ final class Application
             $this->respond($projects);
             return;
         }
+        if ($method === 'GET' && $path === '/api/attention') {
+            $this->respond($this->attention());
+            return;
+        }
         if (preg_match('#^/api/projects/(\d+)/tasks$#', $path, $match)) {
             $project = $this->project((int) $match[1]);
             if ($method === 'GET') {
-                $this->respond($this->all('SELECT t.* FROM tasks t JOIN users u ON u.id=t.assignee_id WHERE t.project_id=? ORDER BY t.id', [$project['id']]));
+                $this->respond($this->all('SELECT * FROM tasks WHERE project_id=? ORDER BY id', [$project['id']]));
                 return;
             }
             if ($method === 'POST') {
@@ -102,10 +106,58 @@ final class Application
             $task = $this->task((int) $match[1]);
             $this->writable($this->project($task['project_id']));
             $data = $this->input();
-            $this->text($data['body'] ?? null, 'Комментарий', 5000, true);
-            throw new ApiError('Добавление комментариев пока не реализовано', 501);
+            $body = $this->text($data['body'] ?? null, 'Комментарий', 5000, true);
+            $stmt = $this->db->prepare('INSERT INTO comments (task_id,user_id,body,created_at) VALUES (?,?,?,?)');
+            $stmt->execute([$task['id'], $this->userId, $body, gmdate('Y-m-d\TH:i:s\Z')]);
+            $this->respond($this->one(
+                'SELECT c.*, u.name AS author FROM comments c JOIN users u ON u.id=c.user_id WHERE c.id=?',
+                [(int) $this->db->lastInsertId()]
+            ), 201);
+            return;
         }
         throw new ApiError('Маршрут не найден', 404);
+    }
+
+    private function attention(): array
+    {
+        $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+        $format = 'Y-m-d\TH:i:s\Z';
+        $tasks = $this->all(<<<'SQL'
+            WITH candidates AS (
+                SELECT t.id, t.project_id, t.title, t.assignee_id, t.due_at,
+                       t.status = 'blocked' AS blocked,
+                       COALESCE(t.due_at < :now, 0) AS overdue,
+                       COALESCE(t.due_at BETWEEN :now AND :soon, 0) AS due_soon,
+                       t.assignee_id IS NULL AS unassigned
+                FROM tasks t
+                JOIN projects p ON p.id = t.project_id
+                JOIN project_members m ON m.project_id = p.id AND m.user_id = :user
+                WHERE p.owner_id = m.user_id AND p.archived = 0 AND t.status <> 'done'
+            )
+            SELECT a.*, substr(c.body, 1, 220) AS comment_excerpt,
+                   length(c.body) > 220 AS comment_truncated, u.name AS comment_author
+            FROM candidates a
+            LEFT JOIN comments c ON c.id = (SELECT id FROM comments WHERE task_id = a.id ORDER BY id DESC LIMIT 1)
+            LEFT JOIN users u ON u.id = c.user_id
+            WHERE a.blocked OR a.overdue OR a.due_soon OR a.unassigned
+            ORDER BY a.blocked DESC, a.overdue DESC, a.due_soon DESC, a.unassigned DESC,
+                     a.due_at IS NULL, a.due_at, a.id
+            SQL, [
+                'now' => $now->format($format),
+                'soon' => $now->add(new DateInterval('PT24H'))->format($format),
+                'user' => $this->userId,
+            ]);
+        foreach ($tasks as &$task) {
+            $task['reasons'] = [];
+            foreach (['blocked', 'overdue', 'due_soon', 'unassigned'] as $reason) {
+                if ($task[$reason]) {
+                    $task['reasons'][] = $reason;
+                }
+                unset($task[$reason]);
+            }
+            $task['comment_truncated'] = (bool) $task['comment_truncated'];
+        }
+        return $tasks;
     }
 
     private function validateTask(array $data, int $projectId, bool $partial): array
