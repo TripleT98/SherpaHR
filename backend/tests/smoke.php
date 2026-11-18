@@ -113,6 +113,49 @@ try {
     check(count($response['data']) === 6, 'initialization does not duplicate or reset data');
     check(request('GET', '/api/tasks/9999')[0] === 404, 'missing task returns 404');
     check(request('GET', '/api/unknown')[0] === 404, 'unknown route returns 404');
+
+    [$status, $response] = request('GET', '/api/attention');
+    $attention = array_column($response['data'], null, 'id');
+    check($status === 200 && isset($attention[1], $attention[5], $attention[7]), 'attention includes blocked and unassigned tasks across owned projects');
+    check(!array_intersect([3, 9, 10, 11], array_keys($attention)), 'attention excludes completed, archived and inaccessible tasks');
+    check($attention[7]['reasons'] === ['unassigned'] && $attention[7]['comment_author'] === 'Борис · разработчик', 'attention names the reason and latest comment author');
+    [, $response] = request('GET', '/api/projects/2/tasks');
+    check(in_array(7, array_column($response['data'], 'id'), true), 'project list retains unassigned tasks');
+    [, $response] = request('GET', '/api/attention', null, 2);
+    check($response['data'] === [], 'project membership alone does not populate attention');
+    [, $response] = request('GET', '/api/attention', null, 3);
+    check(array_column($response['data'], 'id') === [11], 'another owner sees only their own project in attention');
+    check(request('GET', '/api/attention', null, 999)[0] === 401, 'attention rejects unknown persona');
+
+    $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+    $format = 'Y-m-d\TH:i:s\Z';
+    [, $response] = request('POST', '/api/projects/1/tasks', [
+        'title' => 'Проверка близкого срока', 'assignee_id' => 2, 'due_at' => $now->modify('+1 hour')->format($format),
+    ]);
+    $soon = $response['data'];
+    [, $response] = request('POST', '/api/projects/1/tasks', [
+        'title' => 'Проверка просрочки', 'assignee_id' => 3, 'due_at' => $now->modify('-1 hour')->format($format),
+    ]);
+    $overdue = $response['data'];
+    [, $response] = request('POST', '/api/projects/1/tasks', [
+        'title' => 'Проверка дальнего срока', 'assignee_id' => 2, 'due_at' => $now->modify('+2 days')->format($format),
+    ]);
+    $later = $response['data'];
+    $longComment = str_repeat('я', 221);
+    request('POST', '/api/tasks/' . $soon['id'] . '/comments', ['body' => 'Первый комментарий']);
+    request('POST', '/api/tasks/' . $soon['id'] . '/comments', ['body' => $longComment], 2);
+    [, $response] = request('GET', '/api/attention');
+    $attention = array_column($response['data'], null, 'id');
+    $priority = array_values(array_intersect(array_keys($attention), [1, $overdue['id'], $soon['id'], 7]));
+    check($priority === [1, $overdue['id'], $soon['id'], 7], 'attention prioritizes blockers, overdue, upcoming and unassigned tasks in that order');
+    check($attention[$soon['id']]['reasons'] === ['due_soon'] && $attention[$overdue['id']]['reasons'] === ['overdue'], 'deadlines use current UTC time');
+    check(!isset($attention[$later['id']]), 'assigned tasks without an immediate signal stay outside attention');
+    $preview = $attention[$soon['id']];
+    check($preview['comment_excerpt'] === str_repeat('я', 220)
+        && $preview['comment_truncated'] === true && $preview['comment_author'] === 'Борис · разработчик', 'attention returns a Unicode-safe preview of the newest comment');
+    request('PATCH', '/api/tasks/' . $soon['id'], ['status' => 'done', 'version' => $soon['version']]);
+    [, $response] = request('GET', '/api/attention');
+    check(!in_array($soon['id'], array_column($response['data'], 'id'), true), 'completing a task removes it from attention');
     echo "PASS: $count API checks\n";
 } catch (Throwable $error) {
     fwrite(STDERR, $error->getMessage() . PHP_EOL . file_get_contents($directory . '/server.log'));

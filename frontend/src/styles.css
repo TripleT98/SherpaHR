@@ -139,6 +139,10 @@ input:focus,select:focus,textarea:focus {
   border-color:#d2e8da;
   color:#245b3e;
 }
+.attention-link {
+  font-weight:600;
+  margin-bottom:12px;
+}
 .sidebar-note {
   font-size:12px;
   line-height:1.7;
@@ -294,6 +298,70 @@ tr:last-child td {
   background:#eaf5ed;
   color:#386e47;
 }
+.badge.overdue {
+  background:#fff0ee;
+  color:#983c30;
+}
+.badge.due_soon {
+  background:#fff6d9;
+  color:#715317;
+}
+.attention-heading {
+  margin-bottom:24px;
+}
+.attention-section {
+  container-type:inline-size;
+}
+.attention-list {
+  padding:0;
+  margin:0;
+  list-style:none;
+}
+.attention-row {
+  display:grid;
+  grid-template-columns:minmax(0, 1fr) minmax(180px, 32%);
+  gap:20px;
+  padding:18px 20px;
+}
+.attention-row + .attention-row {
+  border-top:1px solid #e4e9ee;
+}
+.attention-row .task-title {
+  font-size:15px;
+  font-weight:600;
+}
+.attention-reasons {
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+.attention-meta,.attention-comment,.drawer-project {
+  color:#596671;
+  font-size:12px;
+  line-height:1.6;
+}
+.attention-meta {
+  margin:6px 0 0;
+}
+.attention-comment {
+  margin:10px 0 0;
+  overflow-wrap:anywhere;
+  white-space:pre-line;
+}
+.attention-comment strong {
+  color:#3f4b56;
+}
+.attention-error {
+  margin:0;
+  padding:20px;
+  color:#983c30;
+}
+@container (max-width:510px) {
+  .attention-row {
+    grid-template-columns:minmax(0, 1fr);
+    gap:12px;
+  }
+}
 .footnote {
   color:#919ba3;
   font-size:11px;
@@ -336,7 +404,10 @@ tr:last-child td {
   justify-content:space-between;
   align-items:center;
   font-weight:600;
-  margin-bottom:25px;
+  margin-bottom:4px;
+}
+.drawer-project {
+  margin:0 0 20px;
 }
 .drawer-heading button {
   border:0;
@@ -445,6 +516,9 @@ fieldset {
   }
   .project-link {
     min-width:170px;
+  }
+  .attention-link {
+    margin-bottom:0;
   }
   .detail {
     width:100%;
